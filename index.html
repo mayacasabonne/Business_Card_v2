@@ -76,16 +76,6 @@ input.initials.bad{border-color:var(--signal)}
 .choice input:focus-visible + .mark{outline:2px solid var(--sage);outline-offset:3px}
 .choice:has(input:checked) .q{font-weight:700}
 
-/* device picker */
-.devices{display:grid;gap:16px;margin-top:18px}
-.devices select{
-  font-family:inherit;font-size:12px;padding:13px 14px;border:1px solid var(--line);
-  background:var(--shell);color:var(--ink);width:100%;border-radius:0;
-}
-.devices select:focus{outline:2px solid var(--sage);outline-offset:2px}
-.devices select:disabled{opacity:.45}
-.thumb{border:1px solid var(--line);background:#000;width:100%;max-width:300px;aspect-ratio:16/9}
-.thumb video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:block}
 
 .actions{margin-top:auto;padding-top:36px;display:flex;gap:12px;flex-wrap:wrap}
 button{font-family:inherit;font-size:11px;letter-spacing:.16em;text-transform:uppercase;padding:16px 26px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer;border-radius:0}
@@ -163,15 +153,15 @@ body.is-mobile .upnext{display:none}
   <div class="field">
     <label class="lbl" for="initials">Your initials</label>
     <input class="initials" id="initials" maxlength="6" autocomplete="off"
-           spellcheck="false" inputmode="latin" placeholder="MY INITIALS" aria-describedby="initialsHint">
-    <div class="hint" id="initialsHint">This is how your recording is named and found.</div>
+           spellcheck="false" inputmode="latin" placeholder="MJCSM" aria-describedby="initialsHint">
+    <div class="hint" id="initialsHint">Two to six letters. This is how your recording is named and found.</div>
     <div class="filename" id="filenamePreview"></div>
   </div>
 
   <hr>
   <h2>How it works</h2>
   <p>You answer three set questions and one you choose yourself. Each question appears on screen with its own countdown. Recording runs straight through — no editing, no retakes mid-way. If you're not happy with it, record again from the start.</p>
-  <p class="note desktop-only">Recording is landscape and full screen. You'll pick your camera and microphone on the next-but-one step, then allow access when your browser asks.</p>
+  <p class="note desktop-only">Recording is landscape and full screen. Allow camera and microphone access when your browser asks — check the right ones are selected in your browser's permission popup.</p>
   <p class="note mobile-only">Turn your phone sideways when the camera opens — recordings are landscape. Allow camera and microphone access when asked, and find a quiet spot with light on your face.</p>
 
   <div class="actions">
@@ -204,17 +194,6 @@ body.is-mobile .upnext{display:none}
   <div class="ruler-legend"><span>0:00</span><span>1:00</span></div>
   <ul class="list" id="confirmList"></ul>
 
-  <div class="desktop-only">
-    <hr>
-    <h2>Camera and microphone</h2>
-    <p>Check you're on the right ones — docked laptops often default to a lid that's closed.</p>
-    <div class="devices">
-      <button class="ghost small" id="probe" style="justify-self:start">Show my devices</button>
-      <select id="cameraSel" disabled aria-label="Camera"><option>Camera — not checked yet</option></select>
-      <select id="micSel" disabled aria-label="Microphone"><option>Microphone — not checked yet</option></select>
-      <div class="thumb" id="thumb" hidden><video id="thumbVideo" autoplay playsinline muted></video></div>
-    </div>
-    <div class="status" id="deviceStatus"></div>
   </div>
 
   <p class="note desktop-only">Opening the camera switches to full screen. Press Escape at any time to stop.</p>
@@ -318,7 +297,6 @@ let chosenOptional = null;
 let running = [];
 let stream = null, recorder = null, chunks = [], blob = null;
 let tickHandle = null, countHandle = null;
-let probeStream = null;
 let deviceIds = { camera:null, mic:null };
 
 const $ = s => document.querySelector(s);
@@ -327,7 +305,6 @@ const pad = n => String(n).padStart(2,'0');
 const show = id => {
   $$('.screen').forEach(s => s.classList.toggle('on', s.id === id));
   document.body.classList.toggle('capturing', id === 'capture');
-  if(id !== 'confirm') stopProbe();
 };
 
 /* ───────────────── initials ───────────────── */
@@ -402,60 +379,11 @@ function renderConfirm(){
       <span class="q">${q.text}</span>
       <span class="dur">${q.seconds}s</span>
     </li>`).join('');
-  if(!IS_MOBILE) maybeAutoProbe();
 }
 
-/* ───────────────── device picker (desktop) ───────────────── */
-async function maybeAutoProbe(){
-  // If permission was granted earlier, labels are already readable — fill silently.
-  try{
-    const list = await navigator.mediaDevices.enumerateDevices();
-    if(list.some(d => d.label)) await probeDevices();
-  }catch(e){}
-}
-
-async function probeDevices(){
-  const s = $('#deviceStatus');
-  s.className = 'status'; s.textContent = 'Checking…';
-  try{
-    stopProbe();
-    probeStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
-    $('#thumbVideo').srcObject = probeStream;
-    $('#thumb').hidden = false;
-
-    const list = await navigator.mediaDevices.enumerateDevices();
-    fillSelect($('#cameraSel'), list.filter(d => d.kind === 'videoinput'), 'Camera');
-    fillSelect($('#micSel'),    list.filter(d => d.kind === 'audioinput'), 'Microphone');
-
-    deviceIds.camera = $('#cameraSel').value || null;
-    deviceIds.mic    = $('#micSel').value || null;
-    s.textContent = '';
-    $('#probe').textContent = 'Check again';
-  }catch(err){
-    s.className = 'status err';
-    s.textContent = 'Camera or microphone access was refused. Allow it in your browser settings, then check again.';
-  }
-}
-
-function fillSelect(sel, devices, kind){
-  sel.disabled = devices.length === 0;
-  sel.innerHTML = devices.length
-    ? devices.map((d,i) => `<option value="${d.deviceId}">${d.label || kind + ' ' + (i+1)}</option>`).join('')
-    : `<option>No ${kind.toLowerCase()} found</option>`;
-}
-
-function stopProbe(){
-  if(probeStream){ probeStream.getTracks().forEach(t => t.stop()); probeStream = null; }
-  const t = $('#thumb'); if(t) t.hidden = true;
-}
-
-$('#probe') && ($('#probe').onclick = probeDevices);
-$('#cameraSel') && ($('#cameraSel').onchange = e => { deviceIds.camera = e.target.value; probeDevices(); });
-$('#micSel')    && ($('#micSel').onchange    = e => { deviceIds.mic = e.target.value; });
 
 /* ───────────────── capture ───────────────── */
 async function startCapture(){
-  stopProbe();
   show('capture');
   $('#liveRuler').innerHTML = rulerHTML();
   $('#promptText').textContent = 'Get comfortable in frame.';
